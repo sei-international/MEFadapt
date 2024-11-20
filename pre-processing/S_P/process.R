@@ -72,14 +72,14 @@ en.gis <- en.table %>%
 s3write_using(
     en.table,
     write.csv,
-    object = "repository/processed/energy/sp_energy.csv",
+    object = "repository/global_analysis/energy/sp_energy.csv",
     bucket = bucket
 )
 
 s3write_using(
     en.gis,
     st_write,
-    object = "repository/processed/energy/sp_energy.gpkg",
+    object = "repository/global_analysis/energy/sp_energy.gpkg",
     bucket = bucket
 )
 
@@ -131,13 +131,13 @@ mi.gis <- mi.table %>%
 s3write_using(
     mi.table,
     write.csv,
-    object = "repository/processed/mining/sp_mining.csv",
+    object = "repository/global_analysis/mining/sp_mining.csv",
     bucket = bucket
 )
 
 s3write_using(
     mi.gis,
     st_write,
-    object = "repository/processed/mining/sp_mining.gpkg",
+    object = "repository/global_analysis/mining/sp_mining.gpkg",
     bucket = bucket
 )
