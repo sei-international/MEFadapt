@@ -99,13 +99,22 @@ food <- foodgis %>%
 # water stress
 
 future_annual <- s3read_using(st_read,
-  layer = "future_annual",
-  object = "repository/raw_data/WATER/aqueduct-4-0-water-risk-data/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/Aq40_Y2023D07M05.gpkg",
+  object = "repository/raw_data/WATER/aqueduct-4-0-water-risk-data/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/aqueduct_future_annual.gpkg",
   bucket = bucket
 )
 
-future_annual <- st_read(paste0(tmpdir, "Aq40_Y2023D07M05.gpkg"), layer = "future_annual")
+future_annual <- st_read(paste0(tmpdir, "aqueduct_future_annual.gpkg")) %>%
+  mutate(bau50_ws_x_l = as.numeric(bau50_ws_x_l))
 
+f_annual_l <- s3read_using(raster,
+  object = "repository/raw_data/WATER/aqueduct-4-0-water-risk-data/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/Aq40_Y2023D07M05_bau50_ws_x_l.tif",
+  bucket = bucket
+)
+
+f_annual_r <- s3read_using(raster,
+  object = "repository/raw_data/WATER/aqueduct-4-0-water-risk-data/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/Aq40_Y2023D07M05_bau50_ws_x_l.tif",
+  bucket = bucket
+)
 
 # tropical storms
 
@@ -120,19 +129,29 @@ let <- raster(paste0(tmpdir, "let.tif"))
 # processing
 # ==================================
 
-# mining first
+# Extract raster values at mining points
+let_ext <- raster::extract(let, as(mininggis, "Spatial"))
 
-miningindices <- exactextractr::exact_extract(let, mininggis, fun = "mean")
-
-
-
+f_annual_ext <- raster::extract(f_annual_c, as(mininggis, "Spatial"))
 
 
+mining.ext <- mininggis %>%
+  mutate(let = let_ext, f_annual = f_annual_ext)
 
 
+# Extract raster values at energy points
+energy.ext <- energygis %>%
+  mutate(let = raster::extract(let, as(energygis, "Spatial")))
 
+energy.ext <- st_join(energy.ext, future_annual["bau50_ws_x_l"])
 
+# Extract raster values at crop polygons
 
+food.ext <- food %>%
+  mutate(let = exact_extract(let, food, "mean"))
+
+food.ext <- food.ext %>%
+  mutate(future_annual = exact_extract(f_annual, food, "mean"))
 
 
 
