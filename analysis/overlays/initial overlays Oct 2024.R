@@ -1,8 +1,4 @@
 
-.libPaths() # original libraries
-myPaths <- c('C:/Users/ecmh500/rlibrary') # new library
-.libPaths(myPaths) # set new library
-.libPaths() # check it's worked
 
 library(rgdal)
 library(sf)

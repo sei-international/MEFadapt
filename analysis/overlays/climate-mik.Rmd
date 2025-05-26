@@ -310,8 +310,12 @@ miness <- mine.data %>%
 
 ```{r, echo=FALSE}
 shinyApp(
+<<<<<<< Updated upstream
     ui = fluidPage(
         titlePanel("Climate Hazards Exposure Overview"),
+=======
+    ui = fluidPage(titlePanel("Climate Hazards Exposure Overview"),
+>>>>>>> Stashed changes
         sidebarLayout(
             sidebarPanel(
                 selectInput("selected_hazard", "Select Hazard:",
@@ -326,6 +330,7 @@ shinyApp(
             mainPanel(
                 plotOutput("hazard_plot")
             )
+<<<<<<< Updated upstream
         )
     ),
     server = function(input, output) {
@@ -350,5 +355,31 @@ shinyApp(
         })
     },
     options = list(height = 500)
+=======
+        ),
+        server = function(input, output) {
+            output$phonePlot = renderPlot({
+                filtered_data <- miness %>%
+                    filter(
+                        hazard == input$selected_hazard,
+                        new_class == input$selected_class
+                    ) %>%
+                    group_by(time, exposure = value) %>%
+                    tally() %>%
+                    filter(!is.na(exposure))
+
+                ggplot(filtered_data, aes(x = time, y = n, fill = exposure)) +
+                    geom_col(position = "fill") +
+                    scale_fill_manual(values = hazard_colors.cl) +
+                    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
+                    labs(
+                        title = paste("Proportion of Mines -", input$selected_hazard, "/", input$selected_class),
+                        x = "", y = "Proportion", fill = "Exposure"
+                    )
+            })
+        },
+        options = list(height = 500)
+    )
+>>>>>>> Stashed changes
 )
 ```

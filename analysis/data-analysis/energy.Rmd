@@ -1,0 +1,340 @@
+---
+title: "MEFAdapt energy data"
+author: "MEFAdapt project"
+date: "2025"
+output:
+  html_document:
+    theme:
+      bootswatch: flatly
+    toc: true
+    toc_depth: 2
+params:
+    countrydata: NA
+cache: FALSE
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+
+libraries <- c(
+    "rmarkdown", "bslib", "Rcpp", "reticulate",
+    "aws.s3", "lubridate", "tibble", "kableExtra", "shiny",
+    "stringi", "aws.signature", "ggpubr", "stringr", "knitr", "ggsci",
+    "ggsflabel", "ggthemes", "janitor", "magrittr", "tidyverse",
+    "dplyr", "DT"
+)
+
+lapply(libraries, library, character.only = TRUE)
+
+options(knitr.table.format = "html")
+
+options(scipen = 999)
+
+bucket <- "mefadapt"
+
+aws.signature::use_credentials(profile = "mefadapt")
+
+Sys.setenv("AWS_DEFAULT_REGION" = get_location("mefadapt"))
+```
+
+
+
+```{r read.data, warning=FALSE, include=FALSE}
+en.table <- s3read_using(read.csv,
+    row.names = 1,
+    object = "repository/global_analysis/energy/sp_energy.csv",
+    bucket = bucket
+) %>%
+    select(-PLANT_KEY) %>%
+    unique()
+
+# en.gis <- s3read_using(
+#     st_read,
+#     object = "repository/global_analysis/energy/sp_energy.gpkg",
+#     bucket = bucket
+# )
+```
+
+<br>
+
+# A short walktrough the data
+
+
+The S&P energy data contains information on `r nrow(en.table)` energy plants globally.
+It contains information on their location, the type of technology used for production, operating status, and others.
+
+
+<br>
+<br>
+
+
+## Energy type
+
+
+This is the list of commodities that are explored in the dataset.
+'n' is the number of mines that explore each commodity, and 'perc' is the percentage of plants with each technology.
+
+
+<br>
+<br>
+
+
+```{r}
+en.table %>%
+    count(TECH_TYPE) %>%
+    mutate(sum = sum(n)) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(perc = round(n * 100 / sum, 1)) %>%
+    select(-sum) %>%
+    arrange(desc(n)) %>%
+    datatable(options = list(class = "cell-border stripe"))
+```
+
+<br>
+
+The table below shows the relationship between the technology type and fuel type in the same power plant.
+
+
+<br>
+<br>
+
+
+```{r}
+en.table %>%
+    count(TECH_TYPE, FUEL_TYPE) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(sum = sum(n)) %>%
+    mutate(perc = round(n * 100 / sum, 3)) %>%
+    select(-sum) %>%
+    arrange(desc(n)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+
+<br>
+<br>
+
+
+## Operational status
+
+
+The table below shows the operational status of these power plants, according to the dataset.
+
+
+<br>
+<br>
+
+
+```{r}
+en.table %>%
+    count(OPER_STATUS) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(sum = sum(n)) %>%
+    mutate(perc = round(n * 100 / sum, 3)) %>%
+    select(-sum) %>%
+    arrange(desc(n)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+
+<br>
+<br>
+
+## Operational and planned capacity
+
+The table below is a short summary of data availability regarding planned and operating capacity, for each operating status.
+
+The first column shows the number of plants with available data on operational capacity, and the second column shows the number of plants with available data on planned capacity.
+The last column shows the number of plants in the database for each operational status.
+
+<br>
+<br>
+
+```{r}
+en.table %>%
+    mutate(
+        OPER_CAPACITY_PLANT = ifelse(is.na(OPER_CAPACITY_PLANT), 0, 1),
+        PLANNED_CAPACITY = ifelse(is.na(PLANNED_CAPACITY), 0, 1)
+    ) %>%
+    group_by(OPER_STATUS) %>%
+    summarize(
+        OPER_CAPACITY_PLANT = sum(OPER_CAPACITY_PLANT, na.rm = T),
+        PLANNED_CAPACITY = sum(PLANNED_CAPACITY, na.rm = T),
+        n = n()
+    ) %>%
+    ungroup() %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+<br>
+Below is a summary of the operating and planned capacity, per fuel type.
+
+
+<br>
+<br>
+
+
+```{r}
+en.table %>%
+    group_by(FUEL_TYPE) %>%
+    summarize(
+        OPER_CAPACITY_PLANT = round(sum(OPER_CAPACITY_PLANT, na.rm = T), 0),
+        PLANNED_CAPACITY = round(sum(PLANNED_CAPACITY, na.rm = T), 0)
+    ) %>%
+    ungroup() %>%
+    select(-PLANNED_CAPACITY) %>%
+    arrange(desc(OPER_CAPACITY_PLANT)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+
+en.table %>%
+    group_by(FUEL_TYPE) %>%
+    summarize(
+        OPER_CAPACITY_PLANT = round(sum(OPER_CAPACITY_PLANT, na.rm = T), 0),
+        PLANNED_CAPACITY = round(sum(PLANNED_CAPACITY, na.rm = T), 0)
+    ) %>%
+    ungroup() %>%
+    select(-OPER_CAPACITY_PLANT) %>%
+    arrange(desc(PLANNED_CAPACITY)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+<br>
+<br>
+
+Finally, below is a summary of the operating and planned capacity, per fuel and technology type.
+
+
+<br>
+<br>
+
+
+```{r echo=FALSE}
+en.table %>%
+    group_by(TECH_TYPE, FUEL_TYPE) %>%
+    summarize(
+        OPER_CAPACITY_PLANT = round(sum(OPER_CAPACITY_PLANT, na.rm = T), 0),
+        PLANNED_CAPACITY = round(sum(PLANNED_CAPACITY, na.rm = T), 0)
+    ) %>%
+    ungroup() %>%
+    select(-PLANNED_CAPACITY) %>%
+    arrange(desc(OPER_CAPACITY_PLANT)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+
+<br>
+<br>
+
+
+```{r echo=FALSE}
+en.table %>%
+    group_by(TECH_TYPE, FUEL_TYPE) %>%
+    summarize(
+        OPER_CAPACITY_PLANT = round(sum(OPER_CAPACITY_PLANT, na.rm = T), 0),
+        PLANNED_CAPACITY = round(sum(PLANNED_CAPACITY, na.rm = T), 0)
+    ) %>%
+    ungroup() %>%
+    select(-OPER_CAPACITY_PLANT) %>%
+    arrange(desc(PLANNED_CAPACITY)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+
+
+<br>
+<br>
+
+
+Below are other summaries of the operational and planned capacity, per fuel type.
+The first table shows the total operational capacity, planned capacity, number of plants, minimum, maximum and mean operational capacity, and minimum, maximum and mean planned capacity.
+
+
+<br>
+<br>
+
+```{r echo=FALSE}
+en.table %>%
+    filter(OPER_CAPACITY_PLANT > 0) %>%
+    group_by(FUEL_TYPE) %>%
+    summarize(
+        total_operating_capacity = round(sum(OPER_CAPACITY_PLANT, na.rm = T), 0),
+        number_of_plants = n(),
+        minimum_operating_capacity = round(min(OPER_CAPACITY_PLANT, na.rm = T), 2),
+        maximum_operating_capacity = round(max(OPER_CAPACITY_PLANT, na.rm = T), 0),
+        mean_operating_capacity = round(mean(OPER_CAPACITY_PLANT, na.rm = T), 0)
+    ) %>%
+    ungroup() %>%
+    arrange(desc(total_operating_capacity)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+
+
+
+en.table %>%
+    filter(PLANNED_CAPACITY > 0) %>%
+    group_by(FUEL_TYPE) %>%
+    summarize(
+        total_planned_capacity = round(sum(PLANNED_CAPACITY, na.rm = T), 0),
+        number_of_plants = n(),
+        minimum_planned_capacity = round(min(PLANNED_CAPACITY, na.rm = T), 2),
+        maximum_planned_capacity = round(max(PLANNED_CAPACITY, na.rm = T), 0),
+        mean_planned_capacity = round(mean(PLANNED_CAPACITY, na.rm = T), 0)
+    ) %>%
+    ungroup() %>%
+    arrange(desc(total_planned_capacity)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+<br>
+<br>
+
+Below are all the planned and existing plants with capacity higher than 14000.
+
+
+<br>
+<br>
+
+```{r echo=FALSE}
+en.table %>%
+    filter(PLANNED_CAPACITY > 10000) %>%
+    rbind(., en.table %>% filter(OPER_CAPACITY_PLANT > 10000)) %>%
+    datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
+```
+
+
+
+<br>
+<br>
+
+The histograms below show the same type of data, but show the full spectrum of operational capacity, and planned capacity, for each fuel type.
+The first histogram shows the operational capacity, and the second one shows the planned capacity.
+
+#### Please beware that the y and x axes are not the same for all graphs.
+#### This means that the graphs are not directly comparable.
+
+<br>
+<br>
+
+
+
+```{r cumulative_graphs2, echo=FALSE,fig.height=15, fig.width=10}
+t <- en.table %>%
+    select(FUEL_TYPE, OPER_CAPACITY_PLANT, PLANNED_CAPACITY) %>%
+    pivot_longer(cols = c(OPER_CAPACITY_PLANT, PLANNED_CAPACITY), names_to = "type", values_to = "value") %>%
+    mutate(type = ifelse(type == "OPER_CAPACITY_PLANT", "Operational Capacity", "Planned Capacity")) %>%
+    filter(value < 10000)
+
+t %>%
+    filter(value > 0) %>%
+    ggplot(aes(x = value)) +
+    geom_histogram(bins = 20, fill = "blue", color = "black", alpha = 0.7) +
+    facet_grid(FUEL_TYPE ~ type, scales = "free_y") +
+    labs(
+        title = "Histograms of Capacity by Fuel Type",
+        x = "Capacity",
+        y = "Count"
+    ) +
+    theme_minimal()
+```
