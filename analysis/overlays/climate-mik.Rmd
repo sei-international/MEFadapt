@@ -1,0 +1,354 @@
+---
+title: "Comprehensive Analysis of Climate & Water Stress Hazards on Mining Operations"
+author: "Rafaela Flach"
+output:
+  html_document:
+    theme:
+      bootswatch: flatly
+    toc: true
+    toc_depth: 4
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+# Load packages
+library(sf)
+library(raster)
+library(leaflet)
+library(shiny)
+library(plotly)
+library(DT)
+library(ggthemes)
+library(RColorBrewer)
+library(aws.s3)
+options(scipen = 999)
+theme_set(theme_minimal())
+library(tidyverse)
+library(conflicted)
+library(exactextractr)
+library(terra)
+```
+
+
+
+```{r settings0, echo=FALSE, include=FALSE}
+# S3 settings
+bucket <- "mefadapt"
+prefix <- "repository/global_analysis/mining-casestudy/input/"
+
+aws.signature::use_credentials(profile = "mefadapt")
+Sys.setenv("AWS_DEFAULT_REGION" = get_location("mefadapt"))
+
+# Ensure dplyr's select is used when there is ambiguity
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+conflicts_prefer(terra::extract)
+```
+
+
+```{r files_mining, echo=FALSE, include=FALSE}
+classes <- s3read_using(
+    FUN = read.csv,
+    row.names = 1,
+    bucket = bucket,
+    object = paste0(prefix, "classes_reviewed.csv")
+)
+
+mines <- s3read_using(
+    FUN = read.csv,
+    row.names = 1,
+    bucket = bucket,
+    object = paste0(prefix, "mines_classes.csv")
+)
+```
+
+
+```{r files_hazards, echo=FALSE, include=FALSE}
+ws <- s3read_using(read.csv,
+    row.names = 1,
+    object = paste0(prefix, "water_mining.csv"),
+    bucket = bucket
+) %>%
+    setNames(c("PROP_ID", "ws_bau", "ws_pes", "ws_baseline")) %>%
+    pivot_longer(
+        cols = starts_with("ws_"),
+        names_to = c("hazard", "time"),
+        names_sep = "_"
+    )
+
+
+cl <- s3read_using(read.csv,
+    row.names = 1,
+    object = paste0(prefix, "climate_mining.csv"),
+    bucket = bucket
+) %>%
+    setNames(gsub("future", "rcp60", names(.))) %>%
+    pivot_longer(
+        cols = starts_with("le"),
+        names_to = c("hazard", "time"),
+        names_sep = "_"
+    )
+
+labels.ws <- c(
+    "Low (<10%)", "Low - Medium (10-20%)",
+    "Medium - High (20-40%)", "High (40-80%)",
+    "Extremely High (>80%)", "Arid and Low Water Use"
+)
+labels.cl <- c(
+    "Zero", "Low (<10%)", "Low - Medium (10-20%)",
+    "Medium - High (20-40%)", "High (40-80%)",
+    "Extremely High (>80%)"
+)
+
+labels <- c(
+    "Zero", "Low (<10%)", "Low - Medium (10-20%)",
+    "Medium - High (20-40%)", "High (40-80%)",
+    "Extremely High (>80%)", "Arid and Low Water Use"
+)
+
+newlevels <- c(0, 0, 1, 1, 1, 1, 1)
+
+levels.ws <- c(-1, 0, 1, 2, 3, 4)
+levels.cl <- c(-Inf, 0, 0.1, 0.2, 0.4, 0.8, Inf)
+
+values.ha <- c("ws", "ler", "leh", "let", "led")
+labels.ha <- c("Water Stress", "River Flood", "Heatwave", "Tropical Cyclones", "Drought")
+
+values.sc <- c("baseline", "bau", "pes", "rcp26", "rcp60")
+labels.sc <- c(
+    "Historical", "Future - Business-as-usual", "Future - Pessimistic",
+    "Future - Business-as-usual", "Future - Pessimistic"
+)
+
+ws.cl <- ws %>%
+    mutate(value = factor(value, levels = levels.ws, labels = labels.ws))
+
+cl.cl <- cl %>%
+    mutate(value = cut(value,
+        breaks = levels.cl,
+        labels = labels.cl
+    ))
+
+hazard_data <- rbind(ws.cl, cl.cl) %>%
+    mutate(hazard = factor(hazard,
+        levels = values.ha, labels = labels.ha
+    )) %>%
+    mutate(time = factor(time,
+        levels = values.sc, labels = labels.sc
+    ))
+```
+
+
+```{r finaldata, echo=FALSE, include=FALSE}
+summary <- mines %>%
+    group_by(PRIMARY_COMMODITY, new_class) %>%
+    tally() %>%
+    pivot_wider(names_from = new_class, values_from = n)
+
+mine.data <- mines %>%
+    select(
+        PROP_NAME, PROP_ID, PROCESSING_METHODS, MINING_METHODS,
+        LATITUDE, LONGITUDE, PRIMARY_COMMODITY, DEV_STAGE,
+        ACTV_STATUS, COMMODITIES_LIST, new_class
+    ) %>%
+    full_join(hazard_data, ., by = "PROP_ID") %>%
+    filter(new_class %in% c("Production", "Development"))
+
+mines <- mine.data
+```
+
+
+```{r settings, echo=FALSE, include=FALSE}
+critical_minerals <- c("Lithium", "Cobalt", "Nickel", "Graphite", "Copper")
+
+
+# Color schemes
+hazard_colors.ws <- c(
+    "Low (<10%)" = "#8ad38a",
+    "Low - Medium (10-20%)" = "#ffe137",
+    "Medium - High (20-40%)" = "#f99828",
+    "High (40-80%)" = "#e3623a",
+    "Extremely High (>80%)" = "#901010",
+    "Arid and Low Water Use" = "#868686"
+)
+
+hazard_colors.cl <- c(
+    "Zero" = "#ddebf7",
+    "Low (<10%)" = "#8ad38a",
+    "Low - Medium (10-20%)" = "#ffe137",
+    "Medium - High (20-40%)" = "#f99828",
+    "High (40-80%)" = "#e3623a",
+    "Extremely High (>80%)" = "#901010"
+)
+```
+
+<br>
+<br>
+
+# 1. Methodology
+
+<br>
+
+## 1.1 Data Sources
+
+The data used in this analysis was obtained from the following sources:
+
+<br>
+
+### 1.1.1 **Water Stress**
+ 
+Aqueduct 4.0  presents 13 water risk indicators including quantity, quality, and reputational concerns. A global hydrological model (PCR-GLOBWB 2) was used to generate datasets on sub-basin water supply and use.
+
+The model is used to project future sub-basin water conditions using CMIP6 climate forcings. The baseline scenario represents a 40-year period (1979-2019).
+The projections centered around three periods (2030, 2050, and 2080) under three future scenarios (business-as-usual SSP 3 RCP 7.0, optimistic SSP 1 RCP 2.6, and pessimistic SSP 5 RCP 8.5).
+
+For our purposes, we chose the water stress indicator. The data provides information on water stress levels across the globe, categorized into six levels of water stress.
+
+Source: https://www.wri.org/research/aqueduct-40-updated-decision-relevant-global-water-risk-indicators
+
+<br>
+
+### 1.1.2 **Climate Hazards**
+  
+The climate hazards data was obtained from the ISIMIP data warehouse. This specific climmate hazard dataset contains the land area fractions and population fractions exposed ('le' for land exposed and 'pe' for population exposed) to the following six extreme climate impact events: crop failures , drought, heatwaves, river floods, tropical cyclones and wildfire. 
+
+The data are provided on a global 0.5° grid and in annual time steps. It was derived from multi-model climate impacts simulations generated within the second round (ISIMIP2b, https://www.isimip.org/protocol/2b, Frieler et al., 2017) of the Intersectoral Impact Model Intercomparison Project (ISIMIP, https://www.isimip.org). The simulations cover the pre-industrial and historical periods, as well as future projections until 2100 for the low emission Representative Concentration Pathway RCP2.6 and the high emission one RCP6.0.
+
+Data source: Stefan Lange, Jan Volkholz, Tobias Geiger, Fang Zhao, Iliusi Vega del Valle, Ted Veldkamp, Christopher Reyer, Lila Warszawski, Veronika Huber, Jonas Jägermeyr, Jacob Schewe, David N. Bresch, Matthias Büchner, Jinfeng Chang, Philippe Ciais, Marie Dury, Kerry Emanuel, Christian Folberth, Dieter Gerten, Simon N. Gosling, Manolis Grillakis, Naota Hanasaki, Alexandra‐Jane Henrot, Thomas Hickler, Yasushi Honda, Akihiko Ito, Nikolay Khabarov, Aristeidis Koutroulis, Wenfeng Liu, Christoph Müller, Kazuya Nishina, Sebastian Ostberg, Hannes Müller Schmied, Sonia I. Seneviratne, Tobias Stacke, Jörg Steinkamp, Wim Thiery, Yoshihide Wada, Sven Willner, Hong Yang, Minoru Yoshikawa, Chao Yue, Katja Frieler (2020): Land area fractions and population fractions exposed to extreme climate impact events derived from ISIMIP2b output data (v1.0). ISIMIP Repository.  https://doi.org/10.48364/ISIMIP.924045
+
+<br>
+
+### 1.1.3 **Mining Data**
+ 
+The mining data was obtained from the S&P mining database. The data provides information on various mining operations, including their location, primary commodity, development status, and activity status.
+
+<br>
+
+## 1.2 Analysis
+
+<br>
+
+### 1.2.1 Zonal Statistics
+
+The water stress and climate hazards data were extracted for each mining operation based on their geographical coordinates.
+
+<br>
+
+### 1.2.2 Hazard Exposure Levels
+
+The hazard exposure levels were categorized into six levels of severity for both water stress and climate hazards. The levels are as follows:
+
+
+- **Water Stress**:
+  
+  - Arid and Low Water Use
+  - Low (<10%)
+  - Low - Medium (10-20%)
+  - Medium - High (20-40%)
+  - High (40-80%)
+  - Extremely High (>80%)
+
+The water stress levels are based on the WRI Aqueduct Water Risk Atlas, which estimates water stress as a ratio of demand to availability. The thresholds used here are the same used by the WRI Aqueduct Water Risk Atlas.
+
+- **Climate Hazards**:
+
+  - Low (<10%)
+  - Low - Medium (10-20%)
+  - Medium - High (20-40%)
+  - High (40-80%)
+  - Extremely High (>80%)
+
+The unit of climate hazard exposure is the percentage of the area affected by the hazard. The thresholds used here are based on the thresholds used above for water stress.
+
+<br>
+
+### 1.2.3 Scenarios
+
+The analysis considers three scenarios for water stress:
+
+- **Baseline**: This scenario represents the historical climate data, which is used as a baseline for comparison. It represents a 40-year period (1979-2019).
+
+- **Business-as-usual**: This scenario represents the future projections under the business-as-usual scenario (SSP 3 RCP 7.0). It is based on the assumption that current trends in water use and climate change will continue without significant changes in policy or behavior.
+The projections chosen are centered around 2080.
+
+- **Pessimistic**: This scenario represents the future projections under the pessimistic SSP 5 RCP 8.5 scenario.
+The projections chosen are centered around 2080.
+
+
+The analysis considers three scenarios for climate hazards:
+
+- **Baseline**: This scenario represents the historical climate data, which is used as a baseline for comparison.
+
+- **Business-as-usual**: Projections until 2100 for the low emission Representative Concentration Pathway RCP2.6.
+
+- **Pessimistic**: Projections until 2100 for the high emission Representative Concentration Pathway RCP6.0.
+
+<br>
+
+### 1.2.4 Compound Exposure
+
+
+<br>
+
+# 🌍 2. Hazard Exposure Overview
+
+In this section, you will see several plots summarizing the distribution of exposure levels for each hazard type, both current and future. Use these to identify which hazards are most prevalent and how overall exposure shifts over time.
+
+<br>
+
+## Overall current climate hazard exposure for all mines and for critical minerals
+
+
+```{r, echo = FALSE, include=FALSE}
+miness <- mine.data %>%
+    filter(hazard %in% c("Heatwave", "Tropical Cyclones", "River Flood", "Drought")) %>%
+    filter(time == "Historical")
+```
+
+
+
+
+```{r, echo=FALSE}
+shinyApp(
+    ui = fluidPage(
+        titlePanel("Climate Hazards Exposure Overview"),
+        sidebarLayout(
+            sidebarPanel(
+                selectInput("selected_hazard", "Select Hazard:",
+                    choices = unique(miness$hazard),
+                    selected = unique(miness$hazard)[1]
+                ),
+                selectInput("selected_class", "Select Operation Status:",
+                    choices = unique(miness$new_class),
+                    selected = unique(miness$new_class)[1]
+                )
+            ),
+            mainPanel(
+                plotOutput("hazard_plot")
+            )
+        )
+    ),
+    server = function(input, output) {
+        output$phonePlot <- renderPlot({
+            filtered_data <- miness %>%
+                filter(
+                    hazard == input$selected_hazard,
+                    new_class == input$selected_class
+                ) %>%
+                group_by(time, exposure = value) %>%
+                tally() %>%
+                filter(!is.na(exposure))
+
+            ggplot(filtered_data, aes(x = time, y = n, fill = exposure)) +
+                geom_col(position = "fill") +
+                scale_fill_manual(values = hazard_colors.cl) +
+                scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
+                labs(
+                    title = paste("Proportion of Mines -", input$selected_hazard, "/", input$selected_class),
+                    x = "", y = "Proportion", fill = "Exposure"
+                )
+        })
+    },
+    options = list(height = 500)
+)
+```
