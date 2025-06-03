@@ -24,7 +24,7 @@ libraries <- c(
     "aws.s3", "lubridate", "tibble", "kableExtra", "shiny",
     "stringi", "aws.signature", "ggpubr", "stringr", "knitr", "ggsci",
     "ggsflabel", "ggthemes", "janitor", "magrittr", "tidyverse",
-    "dplyr", "DT","tidyverse"
+    "dplyr", "DT", "tidyverse"
 )
 
 lapply(libraries, library, character.only = TRUE)
@@ -67,10 +67,11 @@ expand_row2 <- function(new_class, MINING_METHODS) {
         MINING_METHODS = MINING_METHODS_vec,
     )
 }
-classes <- read_delim("C:/Users/RafaelaFlach/Downloads/tempdir/expanded.csv", delim = ";")
+classes <- read_delim("C:/Users/RafaelaFlach/Downloads/tempdir/expanded.csv", delim = ";") %>%
+    mutate(new_class = ifelse(new_class == "Unknown", "Unknown/Other", new_class))
 
 expanded_cl <- pmap_dfr(classes, expand_row)
-cl.list <- classes$new_class
+cl.list <- unique(classes$new_class)
 
 write.csv(expanded_cl, "C:/Users/RafaelaFlach/Downloads/tempdir/class_expanded.csv")
 
@@ -89,12 +90,13 @@ write.csv(expanded_cl_pr, "C:/Users/RafaelaFlach/Downloads/tempdir/class_expande
 mi.methods <- unique(mi.table$MINING_METHODS) %>%
     as.vector() %>%
     str_split(., ",\\s*") %>%
-    unlist %>% unique %>% sort %>%
+    unlist() %>%
+    unique() %>%
+    sort() %>%
     data.frame(methods_original = .)
 
-outtab <- full_join(mi.methods, expanded_cl_pr, by = c("methods_original" = "MINING_METHODS"), keep = TRUE)%>% arrange(methods_original)
+outtab <- full_join(mi.methods, expanded_cl_pr, by = c("methods_original" = "MINING_METHODS"), keep = TRUE) %>% arrange(methods_original)
 write.csv(outtab, "C:/Users/RafaelaFlach/Downloads/tempdir/methods_expanded.csv")
-
 ```
 
 <br>
@@ -124,7 +126,7 @@ It is possible to see here that around 35 and 13% of the mines explore gold and 
 mi.table %>%
     count(PRIMARY_COMMODITY) %>%
     mutate(sum = sum(n)) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(perc = round(n * 100 / sum, 1)) %>%
     select(-sum) %>%
     arrange(desc(n)) %>%
@@ -142,7 +144,7 @@ The table is sorted by the number of mines that explore each combination of comm
 ```{r}
 mi.table %>%
     count(PRIMARY_COMMODITY, COMMODITIES_LIST) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(sum = sum(n)) %>%
     mutate(perc = round(n * 100 / sum, 3)) %>%
     select(-sum) %>%
@@ -165,7 +167,7 @@ As seen here, unfortunately for more than 80% of the mines, this information is 
 ```{r}
 mi.table %>%
     count(MINING_METHODS) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(sum = sum(n)) %>%
     mutate(perc = round(n * 100 / sum, 3)) %>%
     select(-sum) %>%
@@ -184,7 +186,7 @@ The same is true for the data on processing methods, and production forms.
 ```{r}
 mi.table %>%
     count(PROCESSING_METHODS, PRODUCTION_FORMS) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(sum = sum(n)) %>%
     mutate(perc = round(n * 100 / sum, 3)) %>%
     select(-sum) %>%
@@ -208,7 +210,7 @@ the dataset are inactive, for one reason or another.
 ```{r}
 mi.table %>%
     count(ACTV_STATUS) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(sum = sum(n)) %>%
     mutate(perc = round(n * 100 / sum, 3)) %>%
     select(-sum) %>%
@@ -227,7 +229,7 @@ These are the types of 'development stages' included in the dataset.
 ```{r}
 mi.table %>%
     count(DEV_STAGE) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(sum = sum(n)) %>%
     mutate(perc = round(n * 100 / sum, 3)) %>%
     select(-sum) %>%
@@ -246,7 +248,7 @@ And finally, this is the full table with the combinations between 'development s
 ```{r}
 mi.table %>%
     count(DEV_STAGE, ACTV_STATUS) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     mutate(sum = sum(n)) %>%
     mutate(perc = round(n * 100 / sum, 3)) %>%
     select(-sum) %>%
@@ -287,8 +289,6 @@ newtable2 <- mi.table %>%
     filter(PRIMARY_COMMODITY %in% minerals)
 ```
 
-<br>
-<br>
 
 There are `r nrow(mi.table)` mines in the dataset.
 Of these, `r nrow(newtable1)` explore at least one of the energy transition minerals,
@@ -302,7 +302,7 @@ The table below show how many mines explore these minerals as their primary comm
 ```{r}
 newtable2 %>%
     count(PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(class = "cell-border stripe"))
 ```
@@ -322,7 +322,7 @@ in which these minerals are obtained as both a primary or non-primary commodity.
 newtable1 %>%
     count(PRIMARY_COMMODITY) %>%
     mutate(sum = sum(n)) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(class = "cell-border stripe"))
 ```
@@ -349,42 +349,42 @@ are explored as the primary commodity.
 newtable2 %>%
     filter(PRIMARY_COMMODITY == minerals[1]) %>%
     count(ACTV_STATUS, DEV_STAGE, PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
 
 newtable2 %>%
     filter(PRIMARY_COMMODITY == minerals[2]) %>%
     count(ACTV_STATUS, DEV_STAGE, PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
 
 newtable2 %>%
     filter(PRIMARY_COMMODITY == minerals[3]) %>%
     count(ACTV_STATUS, DEV_STAGE, PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
 
 newtable2 %>%
     filter(PRIMARY_COMMODITY == minerals[4]) %>%
     count(ACTV_STATUS, DEV_STAGE, PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
 
 newtable2 %>%
     filter(PRIMARY_COMMODITY == minerals[5]) %>%
     count(ACTV_STATUS, DEV_STAGE, PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
 
 newtable2 %>%
     filter(PRIMARY_COMMODITY == minerals[6]) %>%
     count(ACTV_STATUS, DEV_STAGE, PRIMARY_COMMODITY) %>%
-    mutate(across(everything(), ~ replace_na(.x, "Unknown"))) %>%
+    mutate(across(everything(), ~ replace_na(.x, "Unknown/Other"))) %>%
     arrange(desc(n)) %>%
     datatable(options = list(scrollX = TRUE, class = "cell-border stripe"))
 ```
@@ -398,6 +398,21 @@ newtable2 %>%
 # Simplifying things
 
 
+Here we applied a new classification to the status of the mines, based on the
+`ACTV_STATUS` and `DEV_STAGE` columns.
+This is done to simplify our analysis, and to make it easier to visualize the data.
+The new classification is as follows:
+
+- **Early Exploration**: Mines that are in the early stages of exploration, including those that are not yet active.
+- **Advanced Exploration**: Mines that are in the advanced stages of exploration, but not yet in production.
+- **Study & Evaluation**: Mines that are being studied or evaluated for potential production.
+- **Development**: Mines that are in the development stage, preparing for production.
+- **Production**: Mines that are actively producing minerals.
+- **Closure**: Mines that are in the process of closing down.
+- **Rehabilitation**: Mines that are being rehabilitated after closure.
+- **Unknown/Other**: Mines that do not fit into any of the above categories, or for which the status is unknown.
+
+
 <br>
 <br>
 
@@ -405,12 +420,12 @@ newtable2 %>%
 ```{r, include=FALSE, warning=FALSE, message=FALSE}
 classes <- read_delim("C:/Users/RafaelaFlach/Downloads/tempdir/expanded.csv", delim = ";")
 
-expanded_cl <- classes 
+expanded_cl <- classes
 
 first <- mi.table %>%
     mutate(
-        ACTV_STATUS = replace_na(ACTV_STATUS, "Unknown"),
-        DEV_STAGE = replace_na(DEV_STAGE, "Unknown")
+        ACTV_STATUS = replace_na(ACTV_STATUS, "Unknown/Other"),
+        DEV_STAGE = replace_na(DEV_STAGE, "Unknown/Other")
     ) %>%
     left_join(., expanded_cl %>% filter(dev_stage != "Any"),
         by = c("ACTV_STATUS" = "actv_status", "DEV_STAGE" = "dev_stage")
@@ -419,7 +434,7 @@ first <- mi.table %>%
 second <- first %>%
     filter(is.na(new_class)) %>%
     select(-new_class) %>%
-    left_join(., expanded_cl %>% filter(dev_stage=="Any") %>% select(-dev_stage), by = c("ACTV_STATUS" = "actv_status"))
+    left_join(., expanded_cl %>% filter(dev_stage == "Any") %>% select(-dev_stage), by = c("ACTV_STATUS" = "actv_status"))
 
 all <- rbind(first %>% filter(!is.na(new_class)), second)
 
@@ -432,10 +447,15 @@ test <- all %>%
 
 
 
-
 newtable <- all %>%
     mutate_at(vars(new_class), ~ replace_na(.x, "Unknown/Other")) %>%
     filter(PRIMARY_COMMODITY %in% minerals)
+
+t <- newtable %>%
+    filter(new_class == "Production") %>%
+    filter(!is.na(PRODUCTION_FORMS)) %>%
+    dim()
+
 
 summary <- newtable %>%
     group_by(new_class, PRIMARY_COMMODITY) %>%
@@ -468,6 +488,8 @@ plottable <- newtable %>%
 ```
 
 
+<br>
+<br>
 
 ```{r}
 ggplot(summary, aes(x = PRIMARY_COMMODITY, y = n, fill = new_class)) +
@@ -486,8 +508,14 @@ ggplot(summary, aes(x = PRIMARY_COMMODITY, y = perc, fill = new_class)) +
 ```
 
 
+<br>
+<br>
+
+## Geographical distribution of mines for different critical minerals
 
 
+<br>
+<br>
 
 ```{r, include=FALSE, warning=FALSE, message=FALSE}
 library(rnaturalearth)
@@ -497,7 +525,7 @@ library(rnaturalearthdata)
 world <- ne_countries(scale = "medium", returnclass = "sf")
 ```
 
-```{r, fig.width=12, fig.height=8, echo = FALSE}
+```{r echo = FALSE, warning=FALSE}
 # Create the map with points from newtable
 # Assign specific colors to each unique value in cl.list
 
@@ -510,8 +538,9 @@ colors <- c(
 )
 color_mapping <- setNames(colors[seq_along(cl.list)], cl.list)
 
-plotage <- function(i) {
-    ggplot() +
+ii <- list()
+for (i in com) {
+    ii[[i]] <- ggplot() +
         geom_sf(data = world, fill = "white", color = "grey25") +
         geom_point(
             data = plottable %>% filter(PRIMARY_COMMODITY == i),
@@ -526,30 +555,35 @@ plotage <- function(i) {
         ) +
         theme_minimal()
 }
+```
 
-lapply(com, plotage)
-
-
-
-
-
+```{r, fig.width=12, fig.height=8, warning=FALSE, message=FALSE}
+for (i in com) {
+    plot(ii[[i]])
+}
 ```
 
 
-
+<br>
+<br>
 
 ```{r, include=FALSE, warning=FALSE, message=FALSE}
-
 library(sf)
 
 # Ensure both datasets are in the same CRS
-newtable_sf <- st_as_sf(newtable %>% filter(!is.na(LATITUDE)), coords = c("LONGITUDE", "LATITUDE"), crs = st_crs(world))
+newtable_sf <- st_as_sf(
+    newtable %>%
+        filter(!is.na(LATITUDE)),
+    coords = c("LONGITUDE", "LATITUDE"),
+    crs = st_crs(world)
+)
 
 # Perform spatial join to find which polygon each point belongs to
 newtable_sf <- st_join(newtable_sf, world["name"], join = st_within)
 
 # Add the 'name' column from the polygons to the original table
-newtable <- newtable %>% filter(!is.na(LATITUDE))%>%
+newtable <- newtable %>%
+    filter(!is.na(LATITUDE)) %>%
     mutate(polygon_name = newtable_sf$name)
 
 
@@ -565,7 +599,53 @@ summary <- newtable %>%
         new_class = factor(new_class, levels = cl.list, ordered = T),
         perc = 100 * n / sum
     ) %>%
-    select(-n,-sum) %>% pivot_wider(names_from = new_class,values_from = perc)
-
-
+    select(-n, -sum) %>%
+    pivot_wider(names_from = new_class, values_from = perc)
 ```
+
+
+<br>
+<br>
+
+# Further data availability
+
+There is a series of columns in the dataset that could be very helpful for more detailed analysis. However, that data is not available for most of the mines.
+
+Below is a table that shows the percentage of non-missing values for each of these columns, for the mines that are classified as 'Production' in the new classification.
+
+The columns are:
+- `MINE_TYPE1`: Type of mine
+- `PROJ_START_UP_YR`: Year of project start-up
+- `START_UP_YR`: Year of mine start-up
+- `MILL_CAPACITY_TONNES_PER_YEAR`: Mill capacity in tonnes per year
+- `MINING_METHODS`: Mining methods used
+- `PROCESSING_METHODS`: Processing methods used
+
+
+<br>
+<br>
+
+```{r warning=FALSE, message=FALSE}	
+coltests <- c("MINE_TYPE1", "PROJ_START_UP_YR", "START_UP_YR", "MILL_CAPACITY_TONNES_PER_YEAR", "MINING_METHODS", "PROCESSING_METHODS")
+
+t <- all %>%
+    filter(new_class == "Production") %>%
+    select(PRIMARY_COMMODITY, new_class, PROP_ID, all_of(coltests))
+commodity_counts <- t %>%
+    count(PRIMARY_COMMODITY, name = "mines_count")
+
+t %>%
+    group_by(PRIMARY_COMMODITY, new_class) %>%
+    summarize(across(
+        all_of(coltests),
+        ~ 100 - round(mean(is.na(.)) * 100, 0),
+        .names = "{.col}"
+    ), .groups = "drop") %>%
+    left_join(commodity_counts, by = "PRIMARY_COMMODITY") %>%
+    select(-new_class) %>%
+    datatable(options = list(class = "cell-border stripe"))
+```
+
+
+<br>
+<br>
