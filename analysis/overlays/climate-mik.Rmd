@@ -26,6 +26,7 @@ library(tidyverse)
 library(conflicted)
 library(exactextractr)
 library(terra)
+library(kableExtra)
 ```
 
 
@@ -52,13 +53,15 @@ classes <- s3read_using(
     bucket = bucket,
     object = paste0(prefix, "classes_reviewed.csv")
 )
-
+critical_minerals <- c("Lithium", "Cobalt", "Nickel", "Graphite", "Copper", "Manganese")
 mines <- s3read_using(
     FUN = read.csv,
     row.names = 1,
     bucket = bucket,
     object = paste0(prefix, "mines_classes.csv")
-)
+) %>%
+    filter(new_class %in% c("Production", "Development")) %>%
+    filter(grepl(paste(critical_minerals, collapse = "|"), COMMODITIES_LIST))
 ```
 
 
@@ -89,9 +92,10 @@ cl <- s3read_using(read.csv,
     )
 
 labels.ws <- c(
+    "Arid and Low Water Use",
     "Low (<10%)", "Low - Medium (10-20%)",
     "Medium - High (20-40%)", "High (40-80%)",
-    "Extremely High (>80%)", "Arid and Low Water Use"
+    "Extremely High (>80%)"
 )
 labels.cl <- c(
     "Zero", "Low (<10%)", "Low - Medium (10-20%)",
@@ -110,8 +114,8 @@ newlevels <- c(0, 1, 1, 1, 1, 1)
 levels.ws <- c(-1, 0, 1, 2, 3, 4)
 levels.cl <- c(-Inf, 0, 0.1, 0.2, 0.4, 0.8, Inf)
 
-values.ha <- c("ws", "ler", "leh", "let", "led")
-labels.ha <- c("Water Stress", "River Flood", "Heatwave", "Tropical Cyclones", "Drought")
+values.ha <- c("ler", "leh", "let", "led")
+labels.ha <- c("River Flood", "Heatwave", "Tropical Cyclones", "Drought")
 
 values.sc <- c("baseline", "bau", "pes", "rcp26", "rcp60")
 labels.sc <- c(
@@ -120,15 +124,9 @@ labels.sc <- c(
 )
 
 ws.cl <- ws %>%
-    mutate(value = factor(value, levels = levels.ws, labels = labels.ws))
-
-cl.cl <- cl %>%
-    mutate(value = cut(value,
-        breaks = levels.cl,
-        labels = labels.cl
-    ))
-
-hazard_data <- rbind(ws.cl, cl.cl) %>%
+    mutate(value = factor(value,
+        levels = levels.ws, labels = labels.ws
+    )) %>%
     mutate(hazard = factor(hazard,
         levels = values.ha, labels = labels.ha
     )) %>%
@@ -144,16 +142,21 @@ summary <- mines %>%
     tally() %>%
     pivot_wider(names_from = new_class, values_from = n)
 
-mine.data <- mines %>%
+mines.ws <- mines %>%
     select(
         PROP_NAME, PROP_ID, PROCESSING_METHODS, MINING_METHODS,
         LATITUDE, LONGITUDE, PRIMARY_COMMODITY, DEV_STAGE,
         ACTV_STATUS, COMMODITIES_LIST, new_class
     ) %>%
-    full_join(hazard_data, ., by = "PROP_ID") %>%
-    filter(new_class %in% c("Production", "Development"))
+    full_join(ws.cl, ., by = "PROP_ID") ##### CHECK THIS JOIN
 
-mines <- mine.data
+mines.cl <- mines %>%
+    select(
+        PROP_NAME, PROP_ID, PROCESSING_METHODS, MINING_METHODS,
+        LATITUDE, LONGITUDE, PRIMARY_COMMODITY, DEV_STAGE,
+        ACTV_STATUS, COMMODITIES_LIST, new_class
+    ) %>%
+    full_join(cl, ., by = "PROP_ID")
 ```
 
 
@@ -297,354 +300,212 @@ Then, the exposure levels for each hazard were summed for each mine, resulting i
 
 <br>
 
-# 🌍 2. Hazard Exposure Overview
+# 🌍 2. Input data overview
 
-In this section, you will see several plots summarizing the distribution of exposure levels for each hazard type, both current and future. Use these to identify which hazards are most prevalent and how overall exposure shifts over time.
+## Mining data
 
-<br>
+### Location of mines
 
-## Are critical mineral mines currently more exposed to climate hazards than other types of mines?
-
-```{r echo = FALSE}
-exposure_long1 <- mines %>%
-    filter(new_class %in% c("Production", "Development")) %>%
-    filter(!(PRIMARY_COMMODITY %in% critical_minerals)) %>%
-    group_by(hazard, time, new_class, exposure = value) %>%
-    tally() %>%
-    filter(!is.na(exposure)) %>%
-    mutate(cl = "All other mines")
-exposure_long2 <- mines %>%
-    filter(new_class %in% c("Production", "Development")) %>%
-    filter(PRIMARY_COMMODITY %in% critical_minerals) %>%
-    group_by(hazard, time, new_class, exposure = value) %>%
-    tally() %>%
-    filter(!is.na(exposure)) %>%
-    mutate(cl = "Critical mineral mines")
-exposure_long <- rbind(exposure_long1, exposure_long2)
-
-p1 <- ggplot(
-    exposure_long %>% filter(hazard == "Water Stress") %>%
-        mutate(exposure = factor(exposure, levels = rev(labels.ws), ordered = TRUE)),
-    aes(x = cl, y = n, fill = exposure)
-) +
-    geom_col(position = "fill") +
-    facet_grid(hazard ~ time) +
-    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-    scale_fill_manual(values = hazard_colors.ws) +
-    labs(
-        title = "Proportion of Mines by Water Stress Hazard Level and Type of Mine",
-        x = "", y = "Proportion", fill = "Exposure"
-    )
+```{r, echo=FALSE, fig.align='center', out.width='100%'}
+localdir <- "C:/Users/RafaelaFlach/Documents/MEFadapt/analysis/"
 
 
-p2 <- ggplot(
-    exposure_long %>% filter(hazard != "Water Stress") %>%
-        mutate(exposure = factor(exposure, levels = rev(labels.cl), ordered = TRUE)),
-    aes(x = cl, y = n, fill = exposure)
-) +
-    geom_col(position = "fill") +
-    facet_grid(hazard ~ time) +
-    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-    scale_fill_manual(values = hazard_colors.cl) +
-    labs(
-        title = "Proportion of Mines by Climate Hazard and Type of Mine",
-        x = "", y = "Proportion", fill = "Exposure"
-    )
-```
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Cobalt_1.png"))
 
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Copper_1.png"))
 
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Graphite_1.png"))
 
-```{r overview1, fig.width=10, fig.height=3, out.width='100%',echo = FALSE}
-plot(p1)
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Lithium_1.png"))
+
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Manganese_1.png"))
+
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Nickel_1.png"))
 ```
 
 <br>
-
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for water stress hazard. The plot on the left refer to all mines except for the ones whose primary commodity is a critical mineral, while the plot on the right refers to mines with critical minerals as primary commodity. Compare panels to see shifts from and how these hazards hit all mines in comparison to mines for critical minerals.
-
 <br>
 
+### Mining operations
 
-```{r overview2, fig.width=10, fig.height=8, out.width='100%',echo = FALSE}
-plot(p2)
+```{r, echo=FALSE, fig.align='center', out.width='100%'}
+plott <- function(mineral) {
+    df <- mines %>%
+        filter(new_class == "Production") %>%
+        filter(grepl(mineral, COMMODITIES_LIST)) %>%
+        group_by(PRIMARY_COMMODITY) %>%
+        tally() %>%
+        mutate(n = replace_na(n, 0)) %>%
+        mutate(
+            perc = round(n * 100 / sum(n), 1)
+        ) %>%
+        arrange(desc(n))
+    kable(df,
+        caption = paste0(
+            "Mines that produce ", mineral,
+            ", per primary commodity"
+        )
+    )
+}
+lapply(critical_minerals, plott)
 ```
 
+## Water stress data
+
+```{r, echo=FALSE, fig.align='center', out.width='100%'}	
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/ws_map.tif"))
+```
+<br>
 <br>
 
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for all climate hazards. The plots on the left refer to all mines except for the ones whose primary commodity is a critical mineral, while the plots on the right refers to mines with critical minerals as primary commodity. Compare panels to see shifts from and how these hazards hit all mines in comparison to mines for critical minerals.
+## Climate hazards data
+ 
+```{r, echo=FALSE, fig.align='center', out.width='100%'}	
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_River Flood.png"))
 
-<br>
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Tropical Cyclones.png"))
 
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Drought.png"))
 
-## How will exposure to hazard change over time for critical minerals?
-
-
-```{r echo = FALSE, warning = FALSE}
-exposure_long <- mine.data %>%
-    filter((PRIMARY_COMMODITY %in% critical_minerals)) %>%
-    group_by(hazard, time, new_class, exposure = value) %>%
-    tally() %>%
-    filter(!is.na(exposure))
-
-p1 <- ggplot(
-    exposure_long %>% filter(hazard == "Water Stress") %>%
-        mutate(exposure = factor(exposure, levels = rev(labels.ws), ordered = TRUE)),
-    aes(x = time, y = n, fill = exposure)
-) +
-    geom_col(position = "fill") +
-    facet_grid(hazard ~ new_class) +
-    scale_fill_manual(values = hazard_colors.ws) +
-    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-    labs(
-        title = "Proportion of Mines by Hazard, Development Status, & Time",
-        x = "", y = "Proportion", fill = "Exposure"
-    )
-
-
-p2 <- ggplot(
-    exposure_long %>% filter(hazard != "Water Stress") %>%
-        mutate(exposure = factor(exposure, levels = rev(labels.cl), ordered = TRUE)),
-    aes(x = time, y = n, fill = exposure)
-) +
-    geom_col(position = "fill") +
-    facet_grid(hazard ~ new_class) +
-    scale_fill_manual(values = hazard_colors.cl) +
-    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-    labs(
-        title = "Proportion of Mines by Hazard, Development Status, & Time",
-        x = "", y = "Proportion", fill = "Exposure"
-    )
+knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Heatwave.png"))
 ```
 
 
-```{r overview-bar2, fig.width=10, fig.height=3, out.width='100%',echo = FALSE}
-plot(p1)
-```
+# Water stress Analysis
 
 
+# Climate Exposure Analysis
 
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for water stress hazards. Compare panels to see differences in exposure for mines currently operating and in development, as well as for current and future conditions.
-The mines presented here are for mines with critical minerals as primary commodity.
+For this, a threshold of 0.01 was used.
 
-```{r overview-bar3, fig.width=10, fig.height=8, out.width='100%',echo = FALSE}
-plot(p2)
-```
-
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for all climate hazards.  Compare panels to see differences in exposure for mines currently operating and in development, as well as for current and future conditions.
-The mines presented here are for mines with critical minerals as primary commodity.
-
-
-
-
-<br>
-
-## Is there a difference if we consider mines with critical minerals as primary commodity or any critical mineral production?
-
-```{r echo = FALSE}
-exposure_long1 <- mines %>%
-    filter(new_class %in% c("Production")) %>%
-    filter(grepl(paste(critical_minerals, collapse = "|"), COMMODITIES_LIST)) %>%
-    group_by(hazard, time, new_class, exposure = value) %>%
-    tally() %>%
-    filter(!is.na(exposure)) %>%
-    mutate(cl = "All mines in production that extract any critical mineral")
-exposure_long2 <- mines %>%
-    filter(new_class %in% c("Production")) %>%
-    filter(PRIMARY_COMMODITY %in% critical_minerals) %>%
-    group_by(hazard, time, new_class, exposure = value) %>%
-    tally() %>%
-    filter(!is.na(exposure)) %>%
-    mutate(cl = "Mines in production with critical minerals as primary commodity")
-exposure_long <- rbind(exposure_long1, exposure_long2)
-
-
-p1 <- ggplot(
-    exposure_long %>% filter(hazard == "Water Stress") %>%
-        mutate(exposure = factor(exposure, levels = rev(labels.ws), ordered = TRUE)),
-    aes(x = cl, y = n, fill = exposure)
-) +
-    geom_col(position = "fill") +
-    facet_grid(hazard ~ time) +
-    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-    scale_fill_manual(values = hazard_colors.ws) +
-    labs(
-        title = "Proportion of Mines by Hazard, Development Status, & Time",
-        x = "", y = "Proportion", fill = "Exposure"
-    )
-
-
-p2 <- ggplot(
-    exposure_long %>% filter(hazard != "Water Stress") %>%
-        mutate(exposure = factor(exposure, levels = rev(labels.cl), ordered = TRUE)),
-    aes(x = cl, y = n, fill = exposure)
-) +
-    geom_col(position = "fill") +
-    facet_grid(hazard ~ time) +
-    scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-    scale_fill_manual(values = hazard_colors.cl) +
-    labs(
-        title = "Proportion of Mines by Hazard, Development Status, & Time",
-        x = "", y = "Proportion", fill = "Exposure"
-    )
-```
-
-
-
-
-```{r overview-bar02, fig.width=10, fig.height=3, out.width='100%',echo = FALSE}
-plot(p1)
-```
-
-
-
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for water stress hazards, only for mines in production phase. Compare panels to see shifts from current to future, and between the mines with critical minerals as primary commodity and mines with any critical mineral production.
-
-```{r overview-bar03, fig.width=10, fig.height=8, out.width='100%',echo = FALSE}
-plot(p2)
-```
-
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for all climate hazards, only for mines in production phase. Compare panels to see shifts from current to future, and between the mines with critical minerals as primary commodity and mines with any critical mineral production.
-
-
-
-
-
-# ⛏️ 3. Critical Mineral Focus
-
-
-```{r echo = FALSE, warning=FALSE}
-ll.ws <- list()
-ll.cl <- list()
-for (i in 1:length(critical_minerals)) {
-    exposure_long <- mines %>%
-        filter(PRIMARY_COMMODITY == critical_minerals[i]) %>%
-        filter(new_class %in% c("Production", "Development")) %>%
-        group_by(hazard, time, new_class, exposure = value) %>%
-        summarize(n = n()) %>%
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+summaries <- function(mineral, threshold) {
+    mines.cl %>%
+        filter(time != "rcp26") %>%
+        filter(grepl(mineral, COMMODITIES_LIST)) %>%
+        unique() %>%
+        group_by(hazard, new_class, time) %>%
+        mutate(n = n()) %>%
         ungroup() %>%
-        filter(!is.na(exposure))
-
-    ll.ws[[i]] <- ggplot(
-        exposure_long %>% filter(hazard == "Water Stress") %>%
-            mutate(exposure = factor(exposure, levels = rev(labels.ws), ordered = TRUE)),
-        aes(x = time, y = n, fill = exposure)
-    ) +
-        geom_col(position = "fill") +
-        facet_grid(hazard ~ new_class) +
-        scale_fill_manual(values = hazard_colors.ws) +
-        scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-        labs(
-            title = paste("Proportion of Mines by Hazard, Development Status, & Time for\n Critical Mineral:", critical_minerals[i]),
-            x = "", y = "Proportion", fill = "Exposure"
-        )
-    ll.cl[[i]] <- ggplot(
-        exposure_long %>% filter(hazard != "Water Stress") %>%
-            mutate(exposure = factor(exposure, levels = rev(labels.cl), ordered = TRUE)),
-        aes(x = time, y = n, fill = exposure)
-    ) +
-        geom_col(position = "fill") +
-        facet_grid(hazard ~ new_class) +
-        scale_fill_manual(values = hazard_colors.cl) +
-        scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 20)) +
-        labs(
-            title = paste("Proportion of Mines by Hazard, Development Status, & Time for\n Critical Mineral:", critical_minerals[i]),
-            x = "", y = "Proportion", fill = "Exposure"
-        )
+        mutate(ind = ifelse(value > threshold, 1, 0)) %>%
+        group_by(hazard, new_class, time, n) %>%
+        summarize(nn = sum(ind, na.rm = TRUE)) %>%
+        mutate(perc = round(nn * 100 / n, 1)) %>%
+        select(-n, -nn) %>%
+        mutate(perc = ifelse(is.na(perc), 0, perc)) %>%
+        mutate(mineral = mineral, threshold = threshold)
 }
+
+summary <- lapply(critical_minerals, function(x) summaries(x, 0.01)) %>%
+    do.call(rbind, .) %>%
+    mutate(hazard = factor(hazard,
+        levels = values.ha, labels = labels.ha
+    ), time = factor(time,
+        levels = values.sc, labels = labels.sc
+    ))
+```
+
+
+```{r, echo=FALSE,  fig.width=8, fig.height=10}
+ggplot(summary, aes(x = perc, y = mineral, color = time, shape = new_class)) +
+    geom_point(size = 3) +
+    scale_color_manual(values = c(
+        "Historical" = "#1f77b4",
+        "Future - Pessimistic" = "#ca7628"
+    )) +
+    facet_wrap(vars(hazard), ncol = 1) +
+    labs(x = "Percentage of mines with exposure", y = "Mineral", color = "Time", shape = "Operational \n status") +
+    theme_minimal()
+```
+
+
+### Sensitivity analysis
+
+The graph below shows the sensitivity of the results to different thresholds for the percentage of land area exposed to climate hazards. The thresholds used are 0.01, 0.1, 0.2, and 0.5.
+
+The graph refers to  the pessimistic scenario (RCP 6.0) and only considers mines that are currently in production.
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+thresholds <- c(0.01, 0.1, 0.2, 0.5)
+
+loop <- lapply(critical_minerals, function(x) {
+    lapply(thresholds, function(y) summaries(x, y)) %>% do.call(rbind, .)
+})
+
+summary <- do.call(rbind, loop) %>%
+    mutate(hazard = factor(hazard,
+        levels = values.ha, labels = labels.ha
+    ), time = factor(time,
+        levels = values.sc, labels = labels.sc
+    )) %>%
+    filter(new_class == "Production") %>%
+    filter(time == "Future - Pessimistic") %>%
+    mutate(threshold = factor(threshold, levels = thresholds))
+```
+
+
+```{r, echo=FALSE,  fig.width=8, fig.height=10}
+ggplot(summary, aes(x = perc, y = mineral, color = threshold)) +
+    geom_point(size = 3) +
+    scale_color_manual(values = c(
+        "0.01" = "#8ad38a",
+        "0.1" = "#ffe137",
+        "0.2" = "#f99828",
+        "0.5" = "#e3623a"
+    )) +
+    facet_wrap(vars(hazard), ncol = 1) +
+    labs(x = "Percentage of mines with exposure", y = "Mineral", color = "Threshold") +
+    theme_minimal()
 ```
 
 
 
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+threshold <- 0.01
 
-## Water Stress Hazards
-
-
-```{r overview-bar22, fig.width=10, fig.height=3, out.width='100%',echo = FALSE}
-for (i in 1:length(critical_minerals)) {
-    print(ll.ws[[i]])
+loop1 <- lapply(critical_minerals, function(x) summaries(x, threshold)) %>%
+    do.call(rbind, .)
+summaries <- function(mineral, threshold) {
+    print(mineral)
+    mines.cl %>%
+        filter(time != "rcp26") %>%
+        filter(PRIMARY_COMMODITY == mineral) %>%
+        unique() %>%
+        group_by(hazard, new_class, time) %>%
+        mutate(n = n()) %>%
+        ungroup() %>%
+        mutate(ind = ifelse(value > threshold, 1, 0)) %>%
+        group_by(hazard, new_class, time, n) %>%
+        summarize(nn = sum(ind, na.rm = TRUE)) %>%
+        mutate(perc = round(nn * 100 / n, 1)) %>%
+        select(-n, -nn) %>%
+        mutate(perc = ifelse(is.na(perc), 0, perc)) %>%
+        mutate(mineral = mineral, threshold = threshold)
 }
+loop2 <- lapply(critical_minerals, function(x) summaries(x, threshold)) %>%
+    do.call(rbind, .)
+
+summary <- rbind(loop1 %>% mutate(format = "Included in Commodity List"), 
+loop2 %>% mutate(format = "Primary Commodity")) %>%
+    mutate(hazard = factor(hazard,
+        levels = values.ha, labels = labels.ha
+    ), time = factor(time,
+        levels = values.sc, labels = labels.sc
+    )) %>%
+    filter(new_class == "Production") %>%
+    filter(time == "Historical")
 ```
 
+<br> 
+<br> 
+
+The graph below shows the difference in the results when considering the primary commodity of the mine versus the commodities list. The commodities list includes all commodities that the mine produces, while the primary commodity is the main commodity that the mine produces.
 
 
-*Description:* These stacked bar charts show the proportion of mines in each exposure category for water stress hazards. Compare panels to see shifts from current to future, and between mines currently in production and those in development. The mines presented here are only mines with critical minerals as primary commodities.
-
-## Climate Hazards
-
-```{r overview-bar33, fig.width=10, fig.height=9, out.width='100%',echo = FALSE}
-for (i in 1:length(critical_minerals)) {
-    print(ll.cl[[i]])
-}
-```
-
-
-*Description:* This stacked bar chart shows the proportion of mines in each exposure category for all climate hazards. Compare panels to see shifts from current to future, and between mines currently in production and those in development. The mines presented here are only mines with critical minerals as primary commodities.
-
-
-
-## Compound climate hazards
-
-```{r overview-bar1001, fig.width=8, fig.height=12, out.width='100%',echo = FALSE, warning = FALSE}
-library(rnaturalearth)
-library(rnaturalearthdata)
-
-world <- ne_countries(scale = "medium", returnclass = "sf")
-
-counts <- mines %>%
-    filter(PRIMARY_COMMODITY %in% critical_minerals) %>%
-    filter(hazard != "Water Stress") %>%
-    mutate(valuen = factor(value, levels = labels.cl, labels = newlevels)) %>%
-    mutate(valuen = as.numeric(as.character(valuen))) %>%
-    select(LATITUDE, LONGITUDE, PROP_ID, hazard, time, new_class, valuen, PRIMARY_COMMODITY) %>%
-    filter(!is.na(hazard)) %>%
-    pivot_wider(names_from = hazard, values_from = valuen) %>%
-    mutate_at(
-        vars(-c(
-            LATITUDE, LONGITUDE, PROP_ID,
-            time, new_class, PRIMARY_COMMODITY
-        )),
-        ~ replace(., is.na(.), 0)
-    ) %>%
-    mutate(
-        value = factor(rowSums(select(., `River Flood`:Drought), na.rm = TRUE)),
-    ) %>%
-    select(
-        LATITUDE, LONGITUDE, PROP_ID, LATITUDE,
-        LONGITUDE, PRIMARY_COMMODITY, time,
-        new_class, value
-    ) %>%
-    filter(!is.na(LATITUDE)) %>%
-    filter(!is.na(LONGITUDE)) %>%
-    filter(time != "Future - Business-as-usual") %>%
-    st_as_sf(., coords = c("LONGITUDE", "LATITUDE"), crs = st_crs(world))
-
-
-p1 <- list()
-for (i in 1:length(critical_minerals)) {
-    p1[[i]] <- ggplot() +
-        geom_sf(data = world, fill = "white", color = "grey25") +
-        geom_sf(
-            data = counts %>%
-                filter(PRIMARY_COMMODITY == critical_minerals[i]),
-            aes(color = value), size = 1.2, alpha = 0.8
-        ) +
-        scale_color_manual(values = c(
-            "#d8d8d8", "#f3de3d", "#e39918", "#f5441d", "#950462"
-        )) +
-        facet_grid(new_class ~ time) +
-        labs(
-            title = "Compound Exposure Index for Critical Mineral Mines",
-            subtitle = paste0("Critical Mineral: ", critical_minerals[i]),
-            x = "", y = ""
-        ) +
-        theme_minimal() +
-        theme(legend.position = "bottom")
-}
-```
-
-
-```{r overview-barxx, fig.width=10, fig.height=8, out.width='100%',echo = FALSE}
-for (i in 1:length(critical_minerals)) {
-    print(p1[[i]])
-}
+```{r, echo=FALSE,  fig.width=8, fig.height=10}
+ggplot(summary, aes(x = perc, y = mineral, color = format)) +
+    geom_point(size = 3) +
+    facet_wrap(vars(hazard), ncol = 1) +
+    labs(x = "Percentage of mines with exposure", y = "Mineral", color = "") +
+    theme_minimal()
 ```

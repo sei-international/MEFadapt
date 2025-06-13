@@ -40,6 +40,9 @@ baseline_annual <-s3read_using(st_read,
     mutate(across(where(is.numeric), ~ na_if(., -9999)))
 
 
+
+
+
 cats <- baseline_annual %>%
     st_drop_geometry() %>%
     dplyr::select(bws_cat, bws_label) %>% unique
@@ -127,3 +130,4 @@ s3write_using(points_with_values, write.csv,
     object = paste0(s3_prefix, "climate_mining.csv"),
     bucket = s3_bucket
 )
+ 
