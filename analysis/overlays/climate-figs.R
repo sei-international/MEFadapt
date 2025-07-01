@@ -19,7 +19,7 @@ library(ggplot2)
 library(rnaturalearth)
 library(dplyr)
 library(ggpubr)
-
+library(leaflet)
 
 
 # S3 settings
@@ -106,8 +106,6 @@ hazard_colors.cl <- c(
     "High (40-80%)" = "#e3623a",
     "Extremely High (>80%)" = "#901010"
 )
-
-
 
 
 
