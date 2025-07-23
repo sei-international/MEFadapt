@@ -7,7 +7,7 @@ libraries <- c(
     "aws.s3", "lubridate", "tibble", "stringi",
     "aws.signature", "ggpubr", "stringr", "janitor",
     "magrittr", "tidyverse", "dplyr", "sf", "raster",
-    "fasterize","terra"
+    "fasterize", "terra"
 )
 
 lapply(libraries, library, character.only = TRUE)
@@ -18,6 +18,21 @@ aws.signature::use_credentials(profile = "mefadapt")
 
 Sys.setenv("AWS_DEFAULT_REGION" = get_location("mefadapt"))
 
+
+# ####### ####################################################
+# # MINES
+# ####### ####################################################
+
+mines_file <- "sp_mining.gpkg"
+s3_prefix <- "repository/global_analysis/mining-casestudy/input/"
+s3_bucket <- "mefadapt"
+
+mi.shp <- aws.s3::s3read_using(st_read,
+    bucket = s3_bucket,
+    object = paste0(s3_prefix, mines_file)
+) %>%
+    dplyr::select(PROP_ID, geom) %>%
+    st_make_valid()
 
 
 
@@ -33,30 +48,17 @@ future_annual <- s3read_using(st_read,
     mutate(across(where(is.numeric), ~ na_if(., -9999)))
 
 
-baseline_annual <-s3read_using(st_read,
+baseline_annual <- s3read_using(st_read,
     object = "repository/raw_data/WATER/aqueduct-4-0-water-risk-data/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/Aq40_Y2023D07M05_baseline.gpkg",
     bucket = bucket
 ) %>%
     mutate(across(where(is.numeric), ~ na_if(., -9999)))
 
-
-
-
-
 cats <- baseline_annual %>%
     st_drop_geometry() %>%
-    dplyr::select(bws_cat, bws_label) %>% unique
+    dplyr::select(bws_cat, bws_label) %>%
+    unique()
 
-
-
-mines_file <- "sp_mining.gpkg"
-s3_prefix <- "repository/global_analysis/mining-casestudy/input/"
-s3_bucket <- "mefadapt"
-
-mi.shp <- aws.s3::s3read_using(st_read,
-    bucket = s3_bucket,
-    object = paste0(s3_prefix, mines_file)
-) %>% dplyr::select(PROP_ID, geom) %>% st_make_valid()
 
 future_annual <- future_annual %>% st_make_valid()
 baseline_annual <- baseline_annual %>% st_make_valid()
@@ -130,4 +132,90 @@ s3write_using(points_with_values, write.csv,
     object = paste0(s3_prefix, "climate_mining.csv"),
     bucket = s3_bucket
 )
- 
+
+
+# ####### ####################################################
+# # Flood
+# ####### ####################################################
+
+
+sf::sf_use_s2(FALSE)
+
+
+spatial <- s3read_using(
+    FUN = read_sf,
+    object = "repository/raw_data/CLIMATE/flood_risk/all.gpkg",
+    bucket = bucket
+) %>%
+    st_make_valid() %>%
+    dplyr::select(shapeID, geom)
+
+
+flood_data_list <- s3read_using(read.csv,
+    object = "repository/raw_data/CLIMATE/flood_risk/flood_risk_data_all.csv",
+    bucket = bucket,
+)
+
+mi.shp.flood <- st_join(
+    mi.shp,
+    spatial,
+    join = st_intersects, largest = TRUE
+) %>% st_drop_geometry()
+
+
+final <- full_join(mi.shp.flood, flood_data_list, by = "shapeID")
+
+s3write_using(final, write.csv,
+    object = paste0(s3_prefix, "flood_mining.csv"),
+    bucket = s3_bucket
+)
+
+
+extra <- left_join(spatial,
+    flood_data_list %>% filter(peril == "combinedFlood"),
+    by = "shapeID"
+)
+
+# Rasterize 'extra' for area_percent_inundated for years 2020 and 2100
+
+# Define raster template (extent and resolution based on spatial data)
+template_rast <- rast(ext(spatial), resolution = 0.1) # adjust resolution as needed
+
+# Raster for 2020
+extra_2020 <- extra %>% filter(year == 2020)
+raster_2020 <- terra::rasterize(
+    vect(extra_2020),
+    template_rast,
+    field = "area_percent_inundated",
+    fun = "mean"
+)
+
+# Raster for 2100
+extra_2100 <- extra %>% filter(year == 2100)
+raster_2100 <- terra::rasterize(
+    vect(extra_2100),
+    template_rast,
+    field = "area_percent_inundated",
+    fun = "mean"
+)
+
+# Save rasters to S3
+terra::writeRaster(raster_2020,
+    filename = paste0(tmpdir, "flood_area_percent_2020.tif"),
+    overwrite = TRUE
+)
+terra::writeRaster(raster_2100,
+    filename = paste0(tmpdir, "flood_area_percent_2100.tif"),
+    overwrite = TRUE
+)
+
+aws.s3::put_object(
+    file = paste0(tmpdir, "flood_area_percent_2020.tif"),
+    object = paste0(s3_prefix, "flood_area_percent_2020.tif"),
+    bucket = s3_bucket
+)
+aws.s3::put_object(
+    file = paste0(tmpdir, "flood_area_percent_2100.tif"),
+    object = paste0(s3_prefix, "flood_area_percent_2100.tif"),
+    bucket = s3_bucket
+)

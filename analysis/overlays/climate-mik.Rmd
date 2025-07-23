@@ -677,3 +677,49 @@ g <- ggplot(summary, aes(x = mean, y = mineral, color = format)) +
 
 ggarrange(p, g, ncol = 2, common.legend = TRUE, legend = "top")
 ```
+
+
+
+# Flood exposure analysis
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+
+
+flood <- s3read_using(read.csv, row.names = 1,
+    object = paste0(prefix, "flood_mining.csv"),
+    bucket = bucket
+) 
+
+mines.fl <- mines %>%
+    select(
+        PROP_NAME, PROP_ID, PROCESSING_METHODS, MINING_METHODS,
+        LATITUDE, LONGITUDE, PRIMARY_COMMODITY, DEV_STAGE,
+        ACTV_STATUS, COMMODITIES_LIST, new_class
+    ) %>% mutate(PROP_ID = as.character(PROP_ID)) %>%
+    left_join(., flood, by = "PROP_ID")
+
+summaries <- function(mineral, threshold) {
+    mines.fl %>%
+        filter(grepl(mineral, COMMODITIES_LIST)) %>%
+        unique() %>%
+        group_by(peril, new_class, year) %>%
+        mutate(n = n()) %>%
+        ungroup() %>%
+        mutate(ind = ifelse(area_fraction_inundated > threshold, 1, 0)) %>%
+        mutate(area_fraction_inundated = ifelse(area_fraction_inundated > threshold, area_fraction_inundated, NA)) %>%
+        group_by(peril, new_class, year, n) %>%
+        summarize(
+            nn = sum(ind, na.rm = TRUE),
+            mean = 100 * mean(area_fraction_inundated, na.rm = TRUE)
+        ) %>%
+        mutate(perc = round(nn * 100 / n, 1)) %>%
+        select(-n, -nn) %>%
+        mutate(perc = ifelse(is.na(perc), 0, perc)) %>%
+        mutate(mineral = mineral, threshold = threshold)
+}
+
+summary <- lapply(critical_minerals, function(x) summaries(x, 0.01)) %>%
+    do.call(rbind, .)
+
+
+```
