@@ -24,10 +24,16 @@ options(scipen = 999)
 theme_set(theme_minimal())
 library(tidyverse)
 library(conflicted)
+library(paletteer)
 library(exactextractr)
 library(terra)
 library(kableExtra)
 library(ggpubr)
+library(circlize)
+library(networkD3)
+library(ggalluvial)
+library(rnaturalearth)
+
 ```
 
 
@@ -328,7 +334,8 @@ knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Nickel_1.
 library(htmltools)
 # Filter and prepare mines
 mines_sf <- st_as_sf(mines %>% filter(!is.na(LATITUDE) & !is.na(LONGITUDE)),
-    coords = c("LONGITUDE", "LATITUDE")
+    coords = c("LONGITUDE", "LATITUDE"),
+    crs = 4326
 )
 
 
@@ -382,6 +389,42 @@ for (ii in seq_along(critical_minerals)) {
 }
 
 tagList(map)
+
+
+```
+
+
+
+```{r, echo=FALSE, fig.align='center', out.width='100%'}
+
+map <- lapply(critical_minerals, function(x) {mines_sf %>% filter(grepl(x,COMMODITIES_LIST)) %>% mutate(com = x)}) %>% do.call(rbind,.)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+map <- st_transform(map, st_crs(world))
+
+ggplot() +
+    geom_sf(data = world, color = "white", fill = "white") +
+    geom_sf(data = map, aes(color = com), size = 1.5, alpha = 0.6) +
+    labs(
+        color = "Critical minerals",
+        title = "Location of mines in development or in operation that \nproduce each critical mineral"
+    ) +
+scale_fill_paletteer_d("MetBrewer::Homer")  +
+scale_color_paletteer_d("MetBrewer::Homer")  +
+    guides(color = guide_legend(override.aes = list(size = 6))) + # Increase legend symbol size here
+    theme(
+        plot.background = element_rect(fill = "black", color = NA),
+        panel.background = element_rect(fill = "black", color = NA),
+        legend.position = "bottom",
+        plot.title = element_text(size = 18, color = "white", face = "bold"),
+        legend.text = element_text(size = 12, color = "white"),
+        legend.title = element_text(size = 12, color = "white"),
+        axis.text = element_text(color = "white"),
+        axis.title = element_text(color = "white"),
+        panel.grid = element_blank()
+    )
+
+
 ```
 
 <br>
@@ -688,14 +731,14 @@ ggarrange(p, g, ncol = 2, common.legend = TRUE, legend = "top")
 flood <- s3read_using(read.csv, row.names = 1,
     object = paste0(prefix, "flood_mining.csv"),
     bucket = bucket
-) 
+)
 
 mines.fl <- mines %>%
     select(
         PROP_NAME, PROP_ID, PROCESSING_METHODS, MINING_METHODS,
         LATITUDE, LONGITUDE, PRIMARY_COMMODITY, DEV_STAGE,
         ACTV_STATUS, COMMODITIES_LIST, new_class
-    ) %>% mutate(PROP_ID = as.character(PROP_ID)) %>%
+    ) %>% mutate(PROP_ID = as.integer(PROP_ID)) %>%
     left_join(., flood, by = "PROP_ID")
 
 summaries <- function(mineral, threshold) {
@@ -718,8 +761,154 @@ summaries <- function(mineral, threshold) {
         mutate(mineral = mineral, threshold = threshold)
 }
 
-summary <- lapply(critical_minerals, function(x) summaries(x, 0.01)) %>%
-    do.call(rbind, .)
+l.names <- c( "coastalFlood","fluvialFlood","pluvialFlood","combinedFlood")
+l.labels <- c("Coastal flood", "Riverine flood", "Rainfall-induced flood","Combined flood")
 
+
+summary <- lapply(critical_minerals, function(x) summaries(x, 0.1)) %>%
+    do.call(rbind, .) %>%
+    mutate(year = as.factor(year)) %>%
+    filter(!is.na(peril)) %>%
+    mutate(peril = factor(peril, levels = l.names, labels = l.labels, ordered = TRUE))
+
+
+```
+
+
+
+```{r, echo=FALSE,  fig.width=9, fig.height=10, warning = FALSE}
+p <- ggplot(summary, aes(x = perc, y = mineral, color = year, shape = new_class)) +
+    geom_point(size = 3) +
+    scale_color_manual(values = c(
+        "2020" = "#1f77b4",
+        "2100" = "#ca7628"
+    )) +
+    facet_wrap(vars(peril), ncol = 1) +
+    labs(x = "Percentage of mines with exposure", y = "Mineral", color = "Time", shape = "Operational \n status") +
+    theme_minimal()
+
+
+g <- ggplot(summary, aes(x = mean, y = mineral, color = year, shape = new_class)) +
+    geom_point(size = 3) +
+    scale_color_manual(values = c(
+        "2020" = "#1f77b4",
+        "2100" = "#ca7628"
+    )) +
+    facet_wrap(vars(peril), ncol = 1) +
+    labs(x = "Mean exposure (%)", y = "Mineral", color = "Time", shape = "Operational \n status") +
+    theme_minimal()
+
+ggarrange(p, g, ncol = 2, common.legend = TRUE, legend = "top")
+```
+
+
+
+## Ownership analysis test
+
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+
+owners <- s3read_using(read.csv,
+    object = "repository/global_analysis/mining-casestudy/input/ownership_mining_all.csv",
+    bucket = bucket
+) %>% filter(year == 2023) %>%
+select(PROP_ID,owner,HISTORICAL_OWNER_COUNTRY,HISTORICAL_EQUITY_OWN_PCT) %>%
+filter(!is.na(HISTORICAL_EQUITY_OWN_PCT))
+
+
+share <- s3read_using(read.csv,
+    object = "repository/global_analysis/mining-casestudy/input/shareofworld_all.csv",
+    bucket = bucket
+)  %>% filter(year == 2023) %>% select(-year) %>%
+pivot_wider(names_from = mineral, values_from = value)
+
+
+ct <- s3read_using(
+        FUN = readxl::read_excel,
+        object = "repository/global_analysis/mining-casestudy/input/SC_01.xls",
+        bucket = bucket
+) %>% select(c("Property ID","Country / Region Name")) %>%
+setNames(c("PROP_ID","COUNTRY")) %>% mutate(PROP_ID = as.numeric(PROP_ID))
+
+
+mins <- mines %>% select(PROP_NAME,
+PROP_ID,START_UP_YR,LATITUDE,LONGITUDE,PRIMARY_COMMODITY,COMMODITIES_LIST,new_class)
+
+maintab <- left_join(mins,share) %>%
+filter(!if_all(Cobalt:Nickel, is.na)) %>%
+left_join(., owners) %>% left_join(ct)
+
+
+
+plot_ownership_alluvial <- function(commodity) {
+  # Prepare data
+  df <- maintab %>%
+    filter(!is.na(.data[[commodity]]), .data[[commodity]] > 0) %>%
+    filter(!is.na(HISTORICAL_OWNER_COUNTRY), !is.na(COUNTRY)) %>%
+    mutate(prod = .data[[commodity]])
+
+flows <- df %>%
+    group_by(COUNTRY, HISTORICAL_OWNER_COUNTRY) %>%
+    summarise(total_prod = sum(prod*HISTORICAL_EQUITY_OWN_PCT/100, na.rm = TRUE), .groups = "drop")
+
+list <- flows %>%
+    pivot_longer(COUNTRY:HISTORICAL_OWNER_COUNTRY, names_to = "classes", values_to = "countries") %>% arrange(desc(total_prod)) %>%
+    pull(countries) %>% unique
+
+# Group flows below the threshold into 'Other'
+flowss <- flows %>%
+    mutate(
+        COUNTRY = ifelse(COUNTRY %in% list[1:11], COUNTRY, "Other"),
+        HISTORICAL_OWNER_COUNTRY = ifelse(HISTORICAL_OWNER_COUNTRY %in% list[1:11],HISTORICAL_OWNER_COUNTRY, "Other")
+    ) %>%
+    group_by(COUNTRY, HISTORICAL_OWNER_COUNTRY) %>%
+    summarise(total_prod = sum(total_prod, na.rm = TRUE), .groups = "drop") %>%
+    pivot_longer(COUNTRY:HISTORICAL_OWNER_COUNTRY, names_to = "classes", values_to = "countries") %>%
+    mutate(classes = factor(classes, levels = c("COUNTRY","HISTORICAL_OWNER_COUNTRY"),
+    labels = c("Country of production", "Shareholder location"))) %>%
+    mutate(alluvium = 1:nrow(.))
+
+country_order <- flowss %>%
+  arrange(desc(total_prod)) %>%
+  pull(countries) %>% unique
+
+flowss <- flowss %>%
+  mutate(countries = factor(countries, levels = country_order))
+
+
+ggplot(data = flowss,
+aes(x = classes, stratum = countries,
+alluvium = total_prod, y = total_prod, label = countries,
+fill = countries))+
+  geom_flow(width = 0.10, alpha = 0.85) +
+  geom_stratum(width = 0.1) +
+scale_fill_paletteer_d("rcartocolor::Prism")  +
+  ggrepel::geom_text_repel(
+    aes(label = ifelse(classes == "Country of production", as.character(countries), NA)),
+    stat = "stratum", size = 4, direction = "y", nudge_x = -.2
+  ) +
+  ggrepel::geom_text_repel(
+    aes(label = ifelse(classes == "Shareholder location", as.character(countries), NA)),
+    stat = "stratum", size = 4, direction = "y", nudge_x = .2
+  )  +
+  scale_x_discrete(expand = c(.1, 0))+
+  theme_minimal() +
+ggtitle("Commodity production and country of origin of shareholders",paste0(commodity)) +
+theme(legend.position = "none") +
+labs(y = "Share of global production (%)")
+}
+```
+
+
+
+```{r, echo=FALSE,  fig.width=10, fig.height=7, warning = FALSE}
+
+t <- maintab %>% select(PROP_ID,Cobalt:Nickel) %>%
+unique() %>% pivot_longer(-PROP_ID,names_to = "mineral", values_to = "value") %>%
+group_by(mineral) %>% summarize(sum = sum(value,na.rm=T)) %>% ungroup %>%
+filter(sum>80) %>% pull(mineral)
+
+# Example: plot for Cobalt
+lapply(t, plot_ownership_alluvial)
 
 ```
