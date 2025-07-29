@@ -314,17 +314,17 @@ Then, the exposure levels for each hazard were summed for each mine, resulting i
 ```{r, echo=FALSE, fig.align='center', out.width='100%', include=FALSE}
 
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Cobalt_1.png"))
+# knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Cobalt_1.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Copper_1.png"))
+# knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Copper_1.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Graphite_1.png"))
+# knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Graphite_1.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Lithium_1.png"))
+# knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Lithium_1.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Manganese_1.png"))
+# knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Manganese_1.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Nickel_1.png"))
+# knitr::include_graphics(paste0(localdir, "figures/climate-mining/mines_Nickel_1.png"))
 ```
 
 <br>
@@ -409,8 +409,8 @@ ggplot() +
         color = "Critical minerals",
         title = "Location of mines in development or in operation that \nproduce each critical mineral"
     ) +
-scale_fill_paletteer_d("MetBrewer::Homer")  +
-scale_color_paletteer_d("MetBrewer::Homer")  +
+scale_fill_paletteer_d("MetBrewer::Homer2")  +
+scale_color_paletteer_d("MetBrewer::Homer2")  +
     guides(color = guide_legend(override.aes = list(size = 6))) + # Increase legend symbol size here
     theme(
         plot.background = element_rect(fill = "black", color = NA),
@@ -458,7 +458,7 @@ lapply(critical_minerals, plott)
 
 ```{r, echo=FALSE, fig.align='center', out.width='100%'}
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/ws_map.tif"))
+#knitr::include_graphics(paste0(localdir, "figures/climate-mining/ws_map.tif"))
 ```
 <br>
 <br>
@@ -469,11 +469,11 @@ knitr::include_graphics(paste0(localdir, "figures/climate-mining/ws_map.tif"))
 
 #knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_River Flood.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Tropical Cyclones.png"))
+#knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Tropical Cyclones.png"))
 
 #knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Drought.png"))
 
-knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Heatwave.png"))
+#knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Heatwave.png"))
 ```
 
 
@@ -484,7 +484,8 @@ knitr::include_graphics(paste0(localdir, "figures/climate-mining/hazard_Heatwave
 ll.ws <- list()
 for (i in 1:length(critical_minerals)) {
     exposure_long <- mines.ws %>%
-        filter(grepl(critical_minerals, COMMODITIES_LIST)) %>%
+        filter(grepl(critical_minerals[i], COMMODITIES_LIST)) %>%
+        filter(time != "bau") %>%
         filter(new_class %in% c("Production", "Development")) %>%
         group_by(hazard, time, new_class, exposure = value) %>%
         summarize(n = n()) %>%
@@ -515,10 +516,6 @@ for (i in 1:length(critical_minerals)) {
 
 
 
-
-## Water Stress Hazards
-
-
 ```{r fig.width=10, fig.height=3, out.width='100%',echo = FALSE}
 for (i in 1:length(critical_minerals)) {
     print(ll.ws[[i]])
@@ -528,6 +525,80 @@ for (i in 1:length(critical_minerals)) {
 
 
 *Description:* These stacked bar charts show the proportion of mines in each exposure category for water stress hazards. Compare panels to see shifts from current to future, and between mines currently in production and those in development. The mines presented here are only mines with critical minerals as primary commodities.
+
+
+<br>
+<br>
+
+
+
+
+```{r echo = FALSE, warning=FALSE}
+c.small <- c("Lithium","Cobalt","Nickel", "Copper" )
+
+share <- s3read_using(read.csv,
+    object = "repository/global_analysis/mining-casestudy/input/shareofworld_all.csv",
+    bucket = bucket
+)  %>% filter(year == 2023) %>%
+select(-year) %>%
+filter(!is.na(value)) %>% rename(share = value)
+
+
+p1 <- list()
+p2 <- list()
+for (i in 1:length(c.small)) {
+    tab <- mines.ws %>%
+        filter(grepl(c.small[i], COMMODITIES_LIST)) %>%
+        filter(time != "bau") %>%
+        filter(new_class %in% c("Production", "Development")) %>% 
+        full_join(share %>% filter(mineral == c.small[i]), by = "PROP_ID") %>%
+        select(PROP_ID,time,value,mineral,share,new_class)
+    stats <- tab %>% 
+        filter(!is.na(time)) %>%
+        pivot_wider(names_from = time,values_from = value)%>%
+        group_by(baseline,pes,new_class) %>%
+        summarize(sum = sum(share, na.rm=T), n = n()) %>%
+        ungroup 
+    st1 <- stats %>% select(-n) %>% filter(round(sum,0)>0)
+    st2 <- stats %>% select(-sum) %>% filter(round(n,0)>0)
+    # Heatmap for 'sum' values
+    p1[[i]] <- ggplot(st1, 
+    aes(x = baseline, y = pes, fill = sum)) +
+        geom_tile(color = "white") +
+        facet_wrap(~ new_class) +
+        scale_fill_gradient(low = "#8ad38a", high = "#e3623a", name = "Sum of Share") +
+        labs(
+            title = paste("Heatmap of Sum Share by Exposure Value for", c.small[i]),
+            x = "Baseline   ", y = "Pessimistic"
+        ) +
+        geom_text(aes(label = round(sum, 1)), color = "black", size = 3) +
+        theme_minimal()
+
+    # Heatmap for 'n' values
+    p2[[i]] <- ggplot(st2, aes(x = baseline, y = pes, fill = n)) +
+        geom_tile(color = "white") +
+        facet_wrap(~ new_class) +
+        scale_fill_gradient(low = "#8ad38a", high = "#e3623a", name = "Count (n)") +
+        labs(
+            title = paste("Heatmap of Count by Exposure Value for", c.small[i]),
+            x = "Baseline", y = "Pessimistic"
+        ) +
+        geom_text(aes(label = round(n, 1)), color = "black", size = 3) +
+        theme_minimal()
+
+
+}
+```
+
+
+
+```{r fig.width=10, fig.height=3, out.width='100%',echo = FALSE}
+for (i in 1:length(c.small)) {
+    print(p1[[i]])
+    print(p2[[i]])
+}
+```
+
 
 
 
@@ -721,6 +792,91 @@ g <- ggplot(summary, aes(x = mean, y = mineral, color = format)) +
 ggarrange(p, g, ncol = 2, common.legend = TRUE, legend = "top")
 ```
 
+
+
+
+
+
+
+### additional graphs
+
+
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+summaries <- function(miner) {
+    m <- mines.cl %>%
+        filter(time != "rcp26") %>%
+        filter(grepl(miner, COMMODITIES_LIST)) %>%
+        filter(time != "bau") %>%
+        filter(new_class %in% c("Production", "Development")) %>% 
+        full_join(share %>% filter(miner == mineral), by = "PROP_ID") %>%
+        select(PROP_ID,hazard,time,value,new_class,share) %>%
+        pivot_wider(names_from = time, values_from = value) %>%
+        filter(!is.na(hazard))
+    ggplot(m, aes(baseline, rcp60)) +
+  geom_point(aes(color = new_class, size = share), alpha = 0.5) +
+  xlim(0,0.5) + ylim(0,0.5) +
+  scale_color_manual(values = c("#00AFBB", "#FC4E07")) +
+  scale_size(range = c(0.5, 12)) +
+  facet_wrap(vars(hazard))
+}
+
+m <- lapply(c.small, function(x) {
+    mines.cl %>%
+        filter(grepl(x, COMMODITIES_LIST)) %>%
+        filter(new_class %in% c("Production", "Development")) %>% 
+        full_join(share %>% filter(mineral == x), by = "PROP_ID") %>%
+        filter(time %in% c("baseline","rcp60")) %>%
+        select(PROP_ID,hazard,time,value,new_class,share) %>%
+        mutate(mineral = x)
+        }) %>% do.call(rbind,.) %>%
+        mutate(value = toupper(value*100),1)
+
+
+
+data_summary <- function(x) {
+   m <- mean(x)
+   ymin <- min(x)
+   ymax <- max(x)
+   return(c(y=m,ymin=ymin,ymax=ymax))
+}
+
+other <- function(hazar) {
+    ggplot(m %>% filter(hazard == hazar) %>% filter(value>0),
+    aes(x = time, y = value,color = new_class)) +
+geom_jitter(position=position_jitter(0.2), alpha = 0.6) +
+scale_size(range = c(0.5, 2.5)) +
+stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = round(..y.., 0)),
+    color = "black",
+    hjust = 2,
+    size = 4
+) +
+stat_summary(
+    fun = length,
+    geom = "text",
+    aes(
+        label = paste0("n = ", ..y..),
+        y = stage(value, after_stat = 50)),
+    color = "black",
+    size = 4)+
+  scale_color_manual(values = c("#00AFBB", "#FC4E07")) +
+  stat_summary(fun.data=data_summary, color="black") +
+  facet_wrap(vars(mineral), nrow=1)
+}
+```
+
+
+
+```{r, echo=FALSE,  fig.width=9, fig.height=5, warning = FALSE}
+lapply(c.small, summaries)
+
+
+lapply(c("let","leh"), other)
+
+```
 
 
 # Flood exposure analysis
