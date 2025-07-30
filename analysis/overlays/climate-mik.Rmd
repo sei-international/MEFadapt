@@ -870,9 +870,14 @@ stat_summary(
 
 
 
-```{r, echo=FALSE,  fig.width=9, fig.height=5, warning = FALSE}
+```{r, echo=FALSE,  fig.width=9, fig.height=9, warning = FALSE}
+
 lapply(c.small, summaries)
 
+```
+
+
+```{r, echo=FALSE,  fig.width=9, fig.height=9, warning = FALSE}
 
 lapply(c("let","leh"), other)
 
@@ -956,6 +961,42 @@ g <- ggplot(summary, aes(x = mean, y = mineral, color = year, shape = new_class)
 
 ggarrange(p, g, ncol = 2, common.legend = TRUE, legend = "top")
 ```
+
+
+
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, include=FALSE}
+
+
+summaries <- function(miner) {
+    mines.fl %>%
+        filter(grepl(mineral, COMMODITIES_LIST))  %>%
+        mutate(mineral = miner)
+}
+
+l.names <- c( "coastalFlood","fluvialFlood","pluvialFlood","combinedFlood")
+l.labels <- c("Coastal flood", "Riverine flood", "Rainfall-induced flood","Combined flood")
+
+
+summary <- lapply(critical_minerals, function(x) summaries(x, 0.1)) %>%
+    do.call(rbind, .) %>%
+    mutate(year = as.factor(year)) %>%
+    filter(!is.na(peril)) %>%
+    mutate(peril = factor(peril, levels = l.names, labels = l.labels, ordered = TRUE))
+
+
+
+```
+
+
+
+
+```{r, echo=FALSE,  fig.width=9, fig.height=10, warning = FALSE}
+
+
+```
+
+
 
 
 
